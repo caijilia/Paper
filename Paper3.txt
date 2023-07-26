@@ -1,2 +1,22 @@
 need a final paper.
 
+To assist publication, ALL of the following items are REQUIRED to process your paper:
+
+[ ]  Properly executed IEEE copyright form. The IEEE policy requires that prior to publication all authors or their employers must transfer to the IEEE in writing any copyright they hold for their individual papers.
+
+[ ]  One PDF file of your final manuscript with the text, abstract, figures and tables, all references and authors' bios w/photos in Single-Column Double-Spaced format (One full blank line between lines of type).
+
+[ ] One PDF file of your final manuscript including text, abstract, figures and tables, all references and authors' bios w/photos in Double-Column Single-Spaced IEEE format. You should generate this PDF directly from your source file. (This file will be used to verify the consistency and correctness of any formatting conversions required in the processing of your source files for production.)
+
+[ ]  One electronic copy of the finalized Double-Column Single-Spaced IEEE-formatted source file of the manuscript in LaTeX or MS Word formats. Any tables must be included in the source file, but figures may be provided separately (see below). However, all captions of figures and tables should be included in the source file. References should also be included, with citations embedded in the source file (do not supply separate BibTeX or Endnote files).
+
+[ ] If your figures are not already embedded in the source file of your manuscript, you will need to upload separate figure files, each named according to the corresponding figure numbers in the manuscript. The acceptable formats are EPS, Postscript, PDF, Powerpoint (ppt or pptx), and other device-independent graphics formats. Bitmapped graphics are not appropriate for figures containing text or symbols such as diagrams and graphs, and are acceptable only for photographs. We can NOT accept png and jpeg files due to compression artifacts.
+
+[ ]  Editable source files of the IEEE-style brief biosketches and portrait photos of all authors. The biosketches can be included at the end of your LaTeX or Word source file, or submitted as a separate file. For author photos, jpeg files are acceptable, and the naming convention used to identify each photo should be "authorfirstname_lastname.extension".
+
+[ ] Supplemental electronic material (Multimedia), to illustrate the concepts described by the authors, if applicable. Please read the "Reproducible Research" section below.
+
+[ ]  Contact information including current affiliations, telephones, fax numbers and email addresses of all authors.
+
+In addition, note that the manuscript will be made available on IEEE Xplore within 4 weeks of the date that ALL of the required publication materials have been received. This will be a preprinted version that will later be replaced by the fully edited version after you have submitted the Revised proofs. Both preprinted and fully edited versions will have the same Digital Object Identifier (DOI), and will be equivalent as far as citations are concerned.
+
