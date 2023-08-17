@@ -398,3 +398,78 @@ class UNETR(nn.Module):
         logits = self.out(out)
         return logits
 
+# 备选的模块
+class DRA(nn.Module): # Differential Regional Attention
+    def __init__(self, in_ch=64, class_num=2, value=0.5, simple=1, large=0):
+        super(DRA, self).__init__()
+        self.threshold = value
+        self.s_mode = simple
+        self.l_mode = large
+        self.sigmoid = nn.Sigmoid()
+        self.add_learn = nn.Sequential(
+            nn.Conv3d(in_channels=in_ch, out_channels=in_ch, kernel_size=1),
+            nn.BatchNorm3d(in_ch),
+            nn.GELU()
+        )
+        self.to_class_1 = nn.Conv3d(in_channels=in_ch, out_channels=class_num, kernel_size=1)
+        self.to_class_2 = nn.Conv3d(in_channels=in_ch, out_channels=class_num, kernel_size=1)
+        self.region_learn = nn.Sequential(
+            nn.Conv3d(in_channels=class_num, out_channels=1, kernel_size=1),
+            nn.BatchNorm3d(1),
+            nn.GELU()
+        )
+    
+    def forward(self, x1, x2):
+        b, c, d, h, w = x1.shape
+        x1_sig = self.sigmoid(x1)
+        x2_sig = self.sigmoid(x2)
+        if self.s_mode == 1:
+            x1_in       = 1.0*(x1_sig > self.threshold) 
+            x2_in       = 1.0*(x2_sig > self.threshold) 
+            edge_diff   = torch.abs(x1_in - x2_in)          
+            x           = (edge_diff) * x1 + x1 
+            x           = self.add_learn(x)               
+        elif self.l_mode == 1:
+            x1_in       = self.to_class_1(x1_sig)
+            x2_in       = self.to_class_2(x2_sig)
+            x1_in       = 1.0*(x1_in > self.threshold) 
+            x2_in       = 1.0*(x2_in > self.threshold) 
+            edge_diff   = torch.abs(x1_in - x2_in)
+            x           = self.sigmoid(edge_diff) * x1 + x1
+            x           = self.add_learn(x) 
+        return x
+
+
+class MRA(nn.Module): # Multiple Receptive-field Aggregation
+    def __init__(self, c1_in_channels=64, c2_in_channels=128, c3_in_channels=256, embedding_dim=256, drop_rate=0.2, classes=2):
+        super(MRA, self).__init__()
+        # embedding_dim 是超参数 统一多尺度feature map的channel维度
+        self.conv_c1 = nn.Conv3d(in_channels=c1_in_channels, out_channels=embedding_dim, kernel_size=1)
+        self.down_1  = nn.MaxPool3d(kernel_size=4, stride=4, padding=0, dilation=1)
+        self.conv_c2 = nn.Conv3d(in_channels=c2_in_channels, out_channels=embedding_dim, kernel_size=1)
+        self.down_2  = nn.MaxPool3d(kernel_size=2, stride=2, padding=0, dilation=1)
+        # 三个不同尺度的数据进行融合
+        self.conv_fuse = nn.Sequential(
+            nn.Conv3d(in_channels=embedding_dim*3, out_channels=embedding_dim, kernel_size=1, padding=0, stride=1),
+            nn.BatchNorm3d(embedding_dim),
+            nn.GELU()
+        )
+        self.drop = nn.Dropout3d(drop_rate)
+        self.edge = DRA(in_ch=embedding_dim, class_num=classes)
+    
+    def forward(self, inputs):
+        # inputs 包括三个feature map 分别是 x_b_2, x_b_1, x_b
+        c1, c2, c3 = inputs
+
+        c1_ = self.conv_c1(c1) # 16 64 48 64 -> 16 256 48 64
+        c1_ = self.down_1(c1_) # 16 256 48 64 -> 16 256 12 16
+
+        c2_ = self.conv_c2(c2) # 16 128 24 32 -> 16 256 24 32
+        c2_ = self.down_2(c2_) # 16 256 24 32 -> 16 256 12 16
+
+        c3_ = c3 # 16 256 12 16
+
+        c_fuse = self.conv_fuse(torch.cat([c1_, c2_, c3_], dim=1)) # 8 64 48 64 -> 8 64*4 48 64 -> 8 64 48 64
+        x = self.drop(c_fuse) + self.edge(c2_, c1_) + self.edge(c3_, c2_)
+
+        return x
