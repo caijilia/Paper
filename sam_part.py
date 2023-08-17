@@ -36,9 +36,9 @@ class ChannelPool(nn.Module):
         return torch.cat((torch.max(x, 1)[0].unsqueeze(1), torch.mean(x, 1).unsqueeze(1)), dim=1)
 
 
-class se_block(nn.Module):
+class IRE(nn.Module):
     def __init__(self, in_ch, rate, only_ch=0, only_sp=0):
-        super(se_block, self).__init__()
+        super(IRE, self).__init__()
         self.fc1 = nn.Conv3d(in_channels=in_ch, out_channels=int(in_ch / rate), kernel_size=1)
         self.relu = nn.ReLU(inplace=True)
         self.fc2 = nn.Conv3d(in_channels=int(in_ch / rate), out_channels=in_ch, kernel_size=1)
@@ -73,12 +73,12 @@ class se_block(nn.Module):
         elif self.ch_sp_use == 0:
             s = s * s_in
 
-        # # 再加上上下文注意力  或许是上下文吧
-        # c_in = s  # 8 256 12 16
-        # c = self.fc3(s)  # 8 256 12 16 -> 8 64 12 16
-        # c = self.relu(c)
-        # c = self.fc4(c)  # 8 64 12 16 -> 8 256 12 16
-        # c = self.sigmoid(c) * c_in  # 8 256 12 16 -> 8 256 12 16
+        """ # 再加上上下文注意力  或许是上下文吧
+        c_in = s  # 8 256 12 16
+        c = self.fc3(s)  # 8 256 12 16 -> 8 64 12 16
+        c = self.relu(c)
+        c = self.fc4(c)  # 8 64 12 16 -> 8 256 12 16
+        c = self.sigmoid(c) * c_in  # 8 256 12 16 -> 8 256 12 16 """
 
         return s
 
@@ -91,7 +91,7 @@ class Conv(nn.Module):
         self.relu = None
         self.bn = None
         if relu:
-            self.relu = nn.GELU()
+            self.relu = nn.ReLU()
         if bn:
             self.bn = nn.BatchNorm3d(out_dim)
 
@@ -106,10 +106,10 @@ class Conv(nn.Module):
 
 
 class CEE(nn.Module): # Context Enhanced Encoder 3D_version
-    def __init__(self, patch_size=3, stride=2, in_chans=64, embed_dim=64, double_branch=0, use_att=0):
+    def __init__(self, patch_size=3, stride=2, in_chans=64, embed_dim=64, double_branch=1, use_att=0):
         super().__init__()
         self.att_use = use_att
-        # self.att = IRE(in_ch=embed_dim, rate=4, only_ch=0, only_sp=0)
+        self.att = IRE(in_ch=embed_dim, rate=4, only_ch=0, only_sp=0)
         patch_size = to_2tuple(patch_size)
         self.proj = nn.Sequential(
             nn.Conv3d(in_chans, embed_dim, kernel_size=patch_size, stride=stride, padding=(patch_size[0] // 2)),
@@ -153,23 +153,23 @@ class CEE(nn.Module): # Context Enhanced Encoder 3D_version
     def forward(self, x):
         b, c, d, h, w = x.shape
         # overlap 编码
-        x_pe = self.proj(x) # 16 1 64 48 64 -> 16 64 24 32
-        """ if self.att_use == 1:
-            x_pe = self.att(x_pe) """
+        x_pe = self.proj(x) # 在进入第一次编码层前会使用PFC层 # 16 16 32 32 32 -> 16 32 16 16 16
+        if self.att_use == 1:
+            x_pe = self.att(x_pe)
         # conv 编码
-        x_pe_conv = self.proj_c(x)
+        x_pe_conv = self.proj_c(x) # 16 16 32 32 32 -> 16 32 16 16 16
         # fc_0
-        x_PE = x_pe.flatten(2).transpose(1, 2) # 16 64 24 32 ->16 64 24*32 -> 16 24*32 64
+        x_PE = x_pe.flatten(2).transpose(1, 2) # 16 32 16 16 16 ->16 32 16*16*16 -> 16 16**3 32
         x_PE = self.norm(x_PE)
-        x_po = self.dwconv(x_pe).flatten(2).transpose(1, 2) # 按照 unext 这里是加入位置编码
-        x_0  = torch.transpose((x_PE + x_po), 1, 2).view(b, x_pe.shape[1], int(h/2), int(w/2))
-        x_0  = self.fc0(x_0) # 16 24*32 64
+        x_po = self.dwconv(x_pe).flatten(2).transpose(1, 2) # 按照 unext 这里是加入位置编码 # 16 32 16 16 16 ->16 32 16*16*16 -> 16 16**3 32
+        x_0  = torch.transpose((x_PE + x_po), 1, 2).view(b, x_pe.shape[1], int(d/2), int(h/2), int(w/2)) # 16 16**3 32 -> 16 32 16*16*16 -> 16 32 16 16 16
+        x_0  = self.fc0(x_0) # 16 32 16 16 16 
         # fc_1
-        x_1  = x_0 # torch.transpose(x_0, 1, 2).view(b, x_0.shape[2], int(h/2), int(w/2))
+        x_1  = x_0 
         if self.use_double_branch == 1:
             x_1_ = self.dwconv_2(torch.cat([x_1, x_pe_conv], dim=1))
             x_1_ = self.turn_channel(torch.cat([x_1_, x_pe], dim=1)).flatten(2).transpose(1, 2)
-            x_out  = x_1_ + x_PE
+            x_out  = torch.transpose((x_1_ + x_PE), 1, 2).view(b, x_pe.shape[1], int(d/2), int(h/2), int(w/2)) # 16 16**3 32 -> 16 32 16*16*16 -> 16 32 16 16 16
             return x_out
         return x_1
 
@@ -331,6 +331,10 @@ class UNETR(nn.Module):
         self.out = UnetOutBlock(spatial_dims=3, in_channels=feature_size, out_channels=out_channels)  # type: ignore
         #------fine unet part------
         self.pfc = PFC(in_ch=1, channels=16, kernel_size=7)
+        self.encoder1 = CEE(patch_size=3, stride=2, in_chans=16, embed_dim=32, double_branch=1, use_att=0)
+        self.encoder2 = CEE(patch_size=3, stride=2, in_chans=32, embed_dim=64, double_branch=1, use_att=0)
+        self.encoder3 = CEE(patch_size=3, stride=2, in_chans=64, embed_dim=128, double_branch=1, use_att=0)
+        self.encoder4 = CEE(patch_size=3, stride=2, in_chans=128, embed_dim=256, double_branch=1, use_att=0)
 
     def proj_feat(self, x, hidden_size, feat_size):
         x = x.view(x.size(0), feat_size[0], feat_size[1], feat_size[2], hidden_size)
@@ -367,18 +371,25 @@ class UNETR(nn.Module):
     def forward(self, x_in):
         #------fine unet encode sub_network------
         ##-----fine unet encoding-----
-        hidden_states_out = [] # 用来存储编码过程中各个阶段的编码结果
-        x = None # 最后一层编码结果 也是最深层 空间分辨率最小的编码结果
+        hidden_states_out = []              # 用来存储编码过程中各个阶段的编码结果
+        x_to_encoder = self.pfc(x_in)       # 1 1 32 32 32  -> 1 16 32 32 32
+        x_en1 = self.encoder1(x_to_encoder) # 1 16 32 32 32 -> 1 32 16 16 16
+        hidden_states_out.append(x_en1)     # [1 32 16 16 16]
+        x_en2 = self.encoder2(x_en1)        # 1 16 32 32 32 -> 1 64 16 16 16
+        hidden_states_out.append(x_en2)     # [1 32 16 16 16, 1 64 16 16 16]
+        x_en3 = self.encoder3(x_en2)        # 1 64 16 16 16 -> 1 128 8 8 8
+        hidden_states_out.append(x_en3)     # [1 32 16 16 16, 1 64 16 16 16, 1 128 8 8 8]
+        x_en4 = self.encoder4(x_en3)        # 1 128 8 8 8   -> 1 256 4 4 4
+        x = x_en4                           # 最后一层编码结果 也是最深层 空间分辨率最小的编码结果
         ##-----fine unet encoding-----
         #------fine unet encode sub_network------
-        x, hidden_states_out = self.vit(x_in)
-        enc1 = self.encoder1(x_in)
-        x2 = hidden_states_out[3]
-        enc2 = self.encoder2(self.proj_feat(x2, self.hidden_size, self.feat_size))
-        x3 = hidden_states_out[6]
-        enc3 = self.encoder3(self.proj_feat(x3, self.hidden_size, self.feat_size))
-        x4 = hidden_states_out[9]
-        enc4 = self.encoder4(self.proj_feat(x4, self.hidden_size, self.feat_size))
+        enc1 = x_en1 # self.encoder1(x_in)
+        # x2 = hidden_states_out[3]
+        enc2 = x_en2 # self.encoder2(self.proj_feat(x2, self.hidden_size, self.feat_size))
+        # x3 = hidden_states_out[6]
+        enc3 = x_en3 # self.encoder3(self.proj_feat(x3, self.hidden_size, self.feat_size))
+        # x4 = hidden_states_out[9]
+        enc4 = x_en4 # self.encoder4(self.proj_feat(x4, self.hidden_size, self.feat_size))
         dec4 = self.proj_feat(x, self.hidden_size, self.feat_size)
         dec3 = self.decoder5(dec4, enc4)
         dec2 = self.decoder4(dec3, enc3)
@@ -386,5 +397,4 @@ class UNETR(nn.Module):
         out = self.decoder2(dec1, enc1)
         logits = self.out(out)
         return logits
-
 
