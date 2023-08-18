@@ -20,3 +20,5 @@ To assist publication, ALL of the following items are REQUIRED to process your p
 
 In addition, note that the manuscript will be made available on IEEE Xplore within 4 weeks of the date that ALL of the required publication materials have been received. This will be a preprinted version that will later be replaced by the fully edited version after you have submitted the Revised proofs. Both preprinted and fully edited versions will have the same Digital Object Identifier (DOI), and will be equivalent as far as citations are concerned.
 
+
+Recurrent Saliency Transformation Network for Tiny Target Segmentation in Abdominal CT Scans.
